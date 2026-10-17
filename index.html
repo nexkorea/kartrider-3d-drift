@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>카트라이더 3D 드리프트 엔진 - Step 2 (서킷 트랙 & 미니맵)</title>
+  <style>
+    /* 화면 전체를 게임 캔버스로 채우기 위한 기본 초기화 스타일 */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      overflow: hidden;
+      background-color: #0f172a;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+      color: #ffffff;
+    }
+
+    /* 3D 그래픽이 그려질 캔버스 영역 */
+    #game-canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    /* 좌측 상단: 조작법 안내 및 부스터 아이템 슬롯 */
+    #top-left-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      pointer-events: none;
+    }
+
+    /* 보유한 N2O 부스터 아이템을 보여주는 슬롯 박스 */
+    .item-slots {
+      display: flex;
+      gap: 10px;
+    }
+
+    .item-slot {
+      width: 68px;
+      height: 68px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 3px solid rgba(148, 163, 184, 0.45);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    /* 부스터 아이템이 들어있을 때 활성화되는 스타일 */
+    .item-slot.has-booster {
+      border-color: #ef4444;
+      background: linear-gradient(135deg, rgba(220, 38, 38, 0.88), rgba(153, 27, 27, 0.92));
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.75);
+      transform: scale(1.05);
+    }
+
+    .item-slot .booster-icon {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .item-slot .booster-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fde047;
+    }
+
+    /* 초보자도 쉽게 보면서 따라할 수 있는 조작 가이드 박스 */
+    .control-guide {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 14px 18px;
+      backdrop-filter: blur(8px);
+      line-height: 1.65;
+      font-size: 13px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .control-guide h3 {
+      font-size: 14.5px;
+      color: #38bdf8;
+      margin-bottom: 6px;
+    }
+
+    .key-badge {
+      display: inline-block;
+      background: #334155;
+      border: 1px solid #64748b;
+      border-bottom: 3px solid #475569;
+      border-radius: 6px;
+      padding: 1px 7px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin: 0 2px;
+    }
+
+    /* 우측 상단: 2단계에서 새로 추가된 레이스 랩 타임 & 실시간 미니맵 패널 */
+    #top-right-panel {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .lap-info-box {
+      background: rgba(15, 23, 42, 0.84);
+      border: 2px solid rgba(56, 189, 248, 0.45);
+      border-radius: 14px;
+      padding: 12px 18px;
+      min-width: 210px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+
+    .lap-counter {
+      font-size: 22px;
+      font-weight: 900;
+      color: #fde047;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .time-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-top: 3px;
+    }
+
+    .time-row span.value {
+      font-family: monospace;
+      font-size: 15px;
+      color: #38bdf8;
+    }
+
+    /* 미니맵 캔버스 박스 */
+    .minimap-container {
+      width: 210px;
+      height: 210px;
+      background: rgba(15, 23, 42, 0.84);
+      border: 2px solid rgba(148, 163, 184, 0.4);
+      border-radius: 16px;
+      padding: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #minimap-canvas {
+      width: 190px;
+      height: 190px;
+      display: block;
+    }
+
+    /* 화면 중앙 상단: 드리프트 상태 및 순간 부스터 발동 알림 배너 */
+    #status-banner {
+      position: absolute;
+      top: 18%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+    }
+
+    #status-text {
+      font-size: 32px;
+      font-weight: 900;
+      font-style: italic;
+      text-shadow: 0 4px 15px rgba(0, 0, 0, 0.7);
+      opacity: 0;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      transform: scale(0.9);
+    }
+
+    #status-text.active {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    #instant-boost-hint {
+      margin-top: 8px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #fde047;
+      background: rgba(0, 0, 0, 0.65);
+      padding: 6px 16px;
+      border-radius: 999px;
+      border: 2px solid #eab308;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+
+    #instant-boost-hint.visible {
+      opacity: 1;
+    }
+
+    /* 하단 중앙: 카트라이더 스타일 N2O 부스터 충전 게이지 */
+    #bottom-hud {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+      width: 420px;
+    }
+
+    .gauge-container {
+      width: 100%;
+      height: 24px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    }
+
+    #boost-gauge-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #f97316, #ef4444, #ec4899);
+      border-radius: 999px;
+      transition: width 0.05s linear;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
+    }
+
+    .gauge-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+    }
+
+    /* 우측 하단: 디지털 속도계 (km/h) 및 슬립 앵글 표시 */
+    #speedometer {
+      position: absolute;
+      bottom: 28px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.84);
+      border: 2px solid rgba(56, 189, 248, 0.45);
+      border-radius: 20px;
+      padding: 16px 24px;
+      text-align: right;
+      pointer-events: none;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      min-width: 210px;
+    }
+
+    #speed-value {
+      font-size: 54px;
+      font-weight: 900;
+      font-style: italic;
+      line-height: 1;
+      color: #f8fafc;
+      text-shadow: 0 0 18px rgba(56, 189, 248, 0.6);
+    }
+
+    .speed-unit {
+      font-size: 16px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-left: 4px;
+    }
+
+    #drift-angle-info {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <!-- 3D 그래픽이 렌더링되는 컨테이너 -->
+  <div id="game-canvas-container"></div>
+
+  <!-- 좌측 상단: 부스터 아이템 슬롯 & 조작 가이드 -->
+  <div id="top-left-panel">
+    <div class="item-slots">
+      <div class="item-slot" id="slot-0">
+        <div class="booster-icon">EMPTY</div>
+        <div class="booster-label">SLOT 1</div>
+      </div>
+      <div class="item-slot" id="slot-1">
+        <div class="booster-icon">EMPTY</div>
+        <div class="booster-label">SLOT 2</div>
+      </div>
+    </div>
+
+    <div class="control-guide">
+      <h3>🏎️ 카트라이더 서킷 주행 조작법 (Step 2)</h3>
+      <div><span class="key-badge">↑</span> <span class="key-badge">↓</span> 또는 <span class="key-badge">W</span> <span class="key-badge">S</span> : 가속 / 브레이크·후진</div>
+      <div><span class="key-badge">←</span> <span class="key-badge">→</span> 또는 <span class="key-badge">A</span> <span class="key-badge">D</span> : 조향 (드리프트 중 반대키는 <b>카운터 스티어</b>)</div>
+      <div><span class="key-badge">Shift</span> + 방향키 : <b>코너 드리프트!</b> (N2O 게이지 충전)</div>
+      <div>드리프트 종료 직후 <span class="key-badge">↑</span> : <b>⚡ 순간 부스터!</b></div>
+      <div><span class="key-badge">Ctrl</span> 또는 <span class="key-badge">Space</span> : <b>🔥 N2O 부스터</b> 발동</div>
+      <div><span class="key-badge">R</span> : 트랙 중앙으로 카트 복귀</div>
+    </div>
+  </div>
+
+  <!-- 우측 상단: 랩 타임 기록 및 실시간 미니맵 -->
+  <div id="top-right-panel">
+    <div class="lap-info-box">
+      <div class="lap-counter">
+        <span>🏁 LAP</span>
+        <span id="lap-count-text">1 / 3</span>
+      </div>
+      <div class="time-row">
+        <span>현재 랩 타임</span>
+        <span class="value" id="current-lap-time">00:00.00</span>
+      </div>
+      <div class="time-row">
+        <span>베스트 기록</span>
+        <span class="value" id="best-lap-time">--:--.--</span>
+      </div>
+    </div>
+
+    <div class="minimap-container">
+      <canvas id="minimap-canvas" width="190" height="190"></canvas>
+    </div>
+  </div>
+
+  <!-- 중앙 상단: 순간 부스터 및 드리프트 알림 텍스트 -->
+  <div id="status-banner">
+    <div id="status-text">DRIFT!</div>
+    <div id="instant-boost-hint">지금 [↑] 키를 다시 누르면 ⚡순간 부스터!</div>
+  </div>
+
+  <!-- 하단 중앙: 드리프트 부스터 게이지 바 -->
+  <div id="bottom-hud">
+    <div class="gauge-container">
+      <div id="boost-gauge-fill"></div>
+      <div class="gauge-label" id="boost-gauge-text">N2O GAUGE : 0%</div>
+    </div>
+  </div>
+
+  <!-- 우측 하단: 디지털 속도계 -->
+  <div id="speedometer">
+    <div>
+      <span id="speed-value">0</span>
+      <span class="speed-unit">km/h</span>
+    </div>
+    <div id="drift-angle-info">슬립 각도(Slip Angle): 0°</div>
+  </div>
+
+  <!-- Three.js 3D 라이브러리 불러오기 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- 2단계 서킷 트랙, 벽 충돌 물리, 미니맵이 포함된 게임 엔진 코드 -->
+  <script src="game.js"></script>
+</body>
+</html>
